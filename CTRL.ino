@@ -11,22 +11,19 @@ SoftwareSerial bluetooth(2, 3);
 
 void setup()
 {
-  Serial.begin(9600);
-  bluetooth.begin(9600);
+  Serial.begin(115200);
+  bluetooth.begin(115200);
 }
 
 void loop()
 {
   int degrees;
   degrees = getDegree();
-  //Serial.println("The angle between the mark and the starting position:");
-  //Serial.println(degrees);
 
   byte maxoutput;
   /*The degrees is 0~300, should be converted to be 0~255 to control the*/
   /*limitation of motor output                                          */
   maxoutput = map(degrees, 0, FULL_ANGLE, 0, 255);
-
   delay(500);
   /*transmit signal to Slave HC-06                                      */
   bluetooth.println(maxoutput);
