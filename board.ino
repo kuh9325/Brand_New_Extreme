@@ -1,5 +1,3 @@
-// I2Cdev and MPU6050 must be installed as libraries, or else the .cpp/.h files
-// for both classes must be in the include path of your project
 #include <I2Cdev.h>
 #include <SoftwareSerial.h>
 #include <Servo.h>
@@ -7,7 +5,7 @@
 
 // class default I2C address is 0x68
 // specific I2C addresses may be passed as a parameter here
-// AD0 low = 0x68 (default for SparkFun breakout and InvenSense evaluation board)
+// AD0 low = 0x68 (default for InvenSense evaluation board)
 // AD0 high = 0x69
 const int MPU_addr = 0x68;
 
@@ -78,8 +76,10 @@ void readAccelGyro()
 {
   Wire.beginTransmission(MPU_addr); //I2C comm start
   Wire.write(0x3B);                 //save 0x3B
-  Wire.endTransmission(false); //transmit restart msg (remains connection)
-  Wire.requestFrom(MPU_addr, 14, true); //0x68 -> 0x3B ~ 48, total 14byte save
+  Wire.endTransmission(false);
+  //transmit restart msg (remains connection)
+  Wire.requestFrom(MPU_addr, 14, true);
+  //0x68 -> 0x3B ~ 48, total 14byte save
   AcX = Wire.read() << 8 | Wire.read();
   AcY = Wire.read() << 8 | Wire.read();
   AcZ = Wire.read() << 8 | Wire.read();
@@ -93,7 +93,7 @@ int PWM;
 float dt;
 float accel_angle_x, accel_angle_y, accel_angle_z;
 float gyro_angle_x, gyro_angle_y, gyro_angle_z;
-float filtered_angle_x, filtered_angle_y, filtered_angle_z;
+float compli_a_y;
 float baseAcX, baseAcY, baseAcZ;            //accel avg
 float baseGyX, baseGyY, baseGyZ;            //gyro avg
 
@@ -126,14 +126,19 @@ void calibAccelGyro()
   readAccelGyro();
 
   //calc avg
-  for(int i=0; i<10; i++){
+  for(int i=0; i<10; i++)
+  {
     readAccelGyro();
     sumAcX += AcX; sumAcY += AcY; sumAcZ += AcZ;
     sumGyX += GyX; sumGyY += GyY; sumGyZ += GyZ;
     delay(100);
   }
-  baseAcX = sumAcX / 10; baseAcY = sumAcY / 10; baseAcZ = sumAcZ / 10;
-  baseGyX = sumGyX / 10; baseGyY = sumGyY / 10; baseGyZ = sumGyZ / 10;
+  baseAcX = sumAcX / 10;
+  baseAcY = sumAcY / 10;
+  baseAcZ = sumAcZ / 10;
+  baseGyX = sumGyX / 10;
+  baseGyY = sumGyY / 10;
+  baseGyZ = sumGyZ / 10;
 }
 
 unsigned long t_now;             //current measuring period time
@@ -144,9 +149,10 @@ void initDT()
   t_prev = millis();
 }
 
-void calcDT(){
+void calcDT()
+{
   t_now = millis();
-  dt = (t_now - t_prev) / 1000.0; //millis()로 얻은 값은 밀리초 단위이니까!!!!
+  dt = (t_now - t_prev) / 1000.0; //convert ms to sec
   t_prev = t_now;
 }
 
@@ -184,11 +190,11 @@ void calcGyro()
 void calccompliYPR()
 {
   const float ALPHA = 0.96;
-  float tmp_angle_y;  //prev filtered value
+  float tmp_a_y;  //prev filtered value
 
-  tmp_angle_y = filtered_angle_y + gyro_y * dt;
+  tmp_a_y = compli_a_y + gyro_y * dt;
 
-  filtered_angle_y = ALPHA * tmp_angle_y + (1.0 - ALPHA) * accel_angle_y;
+  compli_a_y = ALPHA * tmp_a_y + (1.0 - ALPHA) * accel_angle_y;
 }
 
 int roll_angle, yaw_gyro;
@@ -196,7 +202,7 @@ int roll_angle, yaw_gyro;
 void Validate()
 {
   yaw_gyro = gyro_z;
-  roll_angle = filtered_angle_y;
+  roll_angle = compli_a_y;
 
   Serial.print("roll angle:\t");
   Serial.print(roll_angle);
@@ -208,46 +214,47 @@ void Validate()
 void PWMtransmit()
 {
   int turnover = 100;                        //stop standard gyro
-  int minv = 1500;                           //stop signal
+  int minv = 1500;                           //stop PWM signal
   int maxoutput, biasoutput;
-  int chkl, chkr;
+  int chkl, chkr;                            //removable
 
   maxoutput = map(PWM, 0, 235, minv, 2000);
   biasoutput = map(maxoutput, minv, 2000, minv, 1900);
 
   if (yaw_gyro < turnover)
   {
-    if (roll_angle > 5.)
+    if (roll_angle > 1.)
     {
       left.writeMicroseconds(maxoutput);
       right.writeMicroseconds(biasoutput);
-      chkl = maxoutput;
-      chkr = biasoutput;
+      chkl = maxoutput;                      //removable
+      chkr = biasoutput;                     //removable
     }
-    else if (roll_angle < -5.)
+    else if (roll_angle < -1.)
     {
       left.writeMicroseconds(biasoutput);
       right.writeMicroseconds(maxoutput);
-      chkl = biasoutput;
-      chkr = maxoutput;
+      chkl = biasoutput;                     //removable
+      chkr = maxoutput;                      //removable
     }
     else
     {
       left.writeMicroseconds(biasoutput);
       right.writeMicroseconds(biasoutput);
-      chkl = biasoutput;
-      chkr = biasoutput;
+      chkl = biasoutput;                     //removable
+      chkr = biasoutput;                     //removable
     }
   }
   else
   {
     left.writeMicroseconds(minv);
     right.writeMicroseconds(minv);
-    chkl = biasoutput;
-    chkr = biasoutput;
+    chkl = biasoutput;                       //removable
+    chkr = biasoutput;                       //removable
     Serial.print("drift detected! stop for a 2s.");
     delay(2000);
   }
+  //===================== removable ======================
     Serial.print("PWM : ");
     Serial.println(PWM);
     Serial.print("bias throttle : ");
