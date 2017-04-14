@@ -56,7 +56,6 @@ void loop()
   calcAccelYPR();                  //calc accel
   calcGyro();                      //calc gyro
   calccompliYPR();                 //using complimentary filter
-  Validate();                      //validate data
   PWMtransmit();                   //transmit PWM to ESC
   Serial.println(micros());
 }
@@ -91,6 +90,8 @@ void readAccelGyro()
 }
 
 int PWM;
+char temp[5];
+char buffer[5];
 float dt;
 float accel_angle_x, accel_angle_y, accel_angle_z;
 float gyro_angle_x, gyro_angle_y, gyro_angle_z;
@@ -100,7 +101,6 @@ float baseGyX, baseGyY, baseGyZ;            //gyro avg
 
 void BTreceive()
 {
-  char temp[5];
   if (bluetooth.available())
   {
     // data starts a and it ends z
@@ -110,13 +110,11 @@ void BTreceive()
 
       Serial.print("Input data Length : ");
       Serial.println(leng);
-      char buffer[leng+1];
       for (int i = 0 ; i < leng ; i++)
       {
         buffer[i] = temp[i];
       }
-      int integer = 0;
-      integer = atoi(buffer);
+      int integer = atoi(buffer);
       int dgt = integer ;                   //temp value
       int chk = 1;
       /*calc digit of integer                       */
@@ -131,13 +129,6 @@ void BTreceive()
       if (chk == leng) // check lost value
       {
         PWM = integer;
-        /*print data that converted into int         */
-        Serial.print("received data : ");
-        Serial.println(PWM);
-        /*confirming value by execute add operation  */
-        int plus = PWM + 50;
-        Serial.print("plus 50 : ");
-        Serial.println(plus);
       }
       /*initialize buffer & index                    */
       for (int a = 0; a < leng+2; a++)
@@ -238,6 +229,17 @@ void Validate()
   Serial.print(roll_angle);
   Serial.print("\tyaw gyro:\t");
   Serial.println(yaw_gyro);
+  /*print data that converted into int         */
+  Serial.print("PWM : ");
+  Serial.println(PWM);
+  Serial.print("bias throttle : ");
+  Serial.println(biasoutput);
+  Serial.print("max throttle : ");
+  Serial.println(maxoutput);
+  Serial.print("left throttle : ");
+  Serial.println(chkl);
+  Serial.print("right throttle : ");
+  Serial.println(chkr);
   delay(5);
 }
 
@@ -272,21 +274,11 @@ void PWMtransmit()
   {
     left.writeMicroseconds(minv);
     right.writeMicroseconds(minv);
-    chkl = biasoutput;                       //removable
-    chkr = biasoutput;                       //removable
+    chkl = minv;                       //removable
+    chkr = minv;                       //removable
     Serial.println("drift detected! stop for a 2s.");
     delay(2000);
   }
-  //===================== removable ======================
-    Serial.print("PWM : ");
-    Serial.println(PWM);
-    Serial.print("bias throttle : ");
-    Serial.println(biasoutput);
-    Serial.print("max throttle : ");
-    Serial.println(maxoutput);
-    Serial.print("left throttle : ");
-    Serial.println(chkl);
-    Serial.print("right throttle : ");
-    Serial.println(chkr);
+  Validate();                          //validate data
 }
 
