@@ -50,7 +50,7 @@ void setup()
 
 void loop()
 {
-  BTreceive(); 
+  BTreceive();                   //receive maxoutput
   readAccelGyro();
   calcDT();                        //calc peroid time
   calcAccelYPR();                  //calc accel
@@ -58,6 +58,7 @@ void loop()
   calccompliYPR();                 //using complimentary filter
   Validate();                      //validate data
   PWMtransmit();                   //transmit PWM to ESC
+  Serial.println(micros());
 }
 
 // ================================================================
@@ -99,22 +100,51 @@ float baseGyX, baseGyY, baseGyZ;            //gyro avg
 
 void BTreceive()
 {
-  /*receiving signal from master HC-06           */
-  char buffer[3];                 //input data into array
-  char i = 0;                     //index
-
-  while (bluetooth.available())
+  char temp[5];
+  if (bluetooth.available())
   {
-    buffer[i] = bluetooth.read(); //receiving data via bluetooth
-    i++;                          //counting
-  }
+    // data starts a and it ends z
+    if (bluetooth.read() == 'a')
+    {
+      byte leng = bluetooth.readBytesUntil('z', temp, 5);
 
-  PWM = atoi(buffer);         //char to int conversion
-  /*initialize buffer & index                    */
-  for (int a = 0; a < 4; a++)
-  {
-    buffer[a] = NULL;
-    i = 0;
+      Serial.print("Input data Length : ");
+      Serial.println(leng);
+      char buffer[leng+1];
+      for (int i = 0 ; i < leng ; i++)
+      {
+        buffer[i] = temp[i];
+      }
+      int integer = 0;
+      integer = atoi(buffer);
+      int dgt = integer ;                   //temp value
+      int chk = 1;
+      /*calc digit of integer                       */
+      if (dgt > 10)
+      {
+        for (dgt ; dgt >10;)
+        {
+           dgt = dgt/10;
+           chk++; 
+        }
+      }
+      if (chk == leng) // check lost value
+      {
+        PWM = integer;
+        /*print data that converted into int         */
+        Serial.print("received data : ");
+        Serial.println(PWM);
+        /*confirming value by execute add operation  */
+        int plus = PWM + 50;
+        Serial.print("plus 50 : ");
+        Serial.println(plus);
+      }
+      /*initialize buffer & index                    */
+      for (int a = 0; a < leng+2; a++)
+      {
+        buffer[a] = NULL;
+      }
+    }
   }
 }
 
@@ -164,7 +194,7 @@ void calcAccelYPR()
 
   accel_x = AcX - baseAcX;                 // ac_x now - avg
   accel_y = AcY - baseAcY;
-  accel_z = AcZ + (16384 - baseAcZ);
+  accel_z = AcZ + (16384 - baseAcZ);       // make value 9.81m/s^2
 
   //calc angle by tilting
   accel_yz = sqrt(pow(accel_y, 2) + pow(accel_z, 2));
@@ -201,7 +231,7 @@ int roll_angle, yaw_gyro;
 
 void Validate()
 {
-  yaw_gyro = gyro_z;
+  yaw_gyro = abs(gyro_z);                    //absolute value
   roll_angle = compli_a_y;
 
   Serial.print("roll angle:\t");
@@ -218,31 +248,24 @@ void PWMtransmit()
   int maxoutput, biasoutput;
   int chkl, chkr;                            //removable
 
-  maxoutput = map(PWM, 0, 235, minv, 2000);
+  maxoutput = map(PWM, 0, 255, minv, 2000);
   biasoutput = map(maxoutput, minv, 2000, minv, 1900);
 
   if (yaw_gyro < turnover)
   {
-    if (roll_angle > 1.)
+    if (roll_angle < 0)
     {
       left.writeMicroseconds(maxoutput);
       right.writeMicroseconds(biasoutput);
       chkl = maxoutput;                      //removable
       chkr = biasoutput;                     //removable
     }
-    else if (roll_angle < -1.)
+    else if (roll_angle > 0)
     {
       left.writeMicroseconds(biasoutput);
       right.writeMicroseconds(maxoutput);
       chkl = biasoutput;                     //removable
       chkr = maxoutput;                      //removable
-    }
-    else
-    {
-      left.writeMicroseconds(biasoutput);
-      right.writeMicroseconds(biasoutput);
-      chkl = biasoutput;                     //removable
-      chkr = biasoutput;                     //removable
     }
   }
   else
@@ -251,7 +274,7 @@ void PWMtransmit()
     right.writeMicroseconds(minv);
     chkl = biasoutput;                       //removable
     chkr = biasoutput;                       //removable
-    Serial.print("drift detected! stop for a 2s.");
+    Serial.println("drift detected! stop for a 2s.");
     delay(2000);
   }
   //===================== removable ======================

@@ -24,9 +24,11 @@ void loop()
   /*The degrees is 0~300, should be converted to be 0~255 to control the*/
   /*limitation of motor output                                          */
   maxoutput = map(degrees, 0, FULL_ANGLE, 0, 255);
-  delay(500);
+  delay(200);
   /*transmit signal to Slave HC-06                                      */
-  bluetooth.println(maxoutput);
+  bluetooth.print("a");
+  bluetooth.print(maxoutput);
+  bluetooth.print("z");
 }
 
 /*PWM control motor output                         */
