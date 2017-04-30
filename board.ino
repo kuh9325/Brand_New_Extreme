@@ -11,6 +11,59 @@ const int MPU_addr = 0x68;
 
 #define INTERRUPT_PIN 2  // use pin 2 on Arduino Uno & most boards
 #define LED_PIN 13 // (Arduino is 13)
+//#define FREQ 200.0
+
+double dt = 0.01; // 1.0 / FREQ;
+double pitch = 0;
+double roll = 0;
+//float wn = .55;
+float filterKP = 20;//wn * 2.0;
+float filterKI = 3*dt;//wn * wn * dt;
+
+class PIDController
+{
+    double kP;
+    double kI;
+    double kD;
+    double xError;
+    double xDesired;
+    double xErrorPrev;
+    double xErrorIntegral;
+    boolean feed;
+  public:
+    PIDController(double myKP, double myKI, double myKD, boolean isFeed)
+    {
+      kP = myKP;
+      kI = myKI;
+      kD = myKD;
+      xError = 0;
+      xDesired = 0;
+      xErrorPrev = 0;
+      xErrorIntegral = 0;
+      feed = isFeed;
+    }
+
+    void setDesired(double myXDesired)
+    {
+      xDesired = myXDesired;
+    }
+
+    double update(double x, double dx)
+    {
+      double command = 0.0;
+      xError = (xDesired - x);
+      xErrorIntegral += xError;
+      if (feed)
+        command = kP * xError + kI * xErrorIntegral + kD * dx;
+      else
+        command = kP * xError + kI * xErrorIntegral + kD * (xError - xErrorPrev);
+      xErrorPrev = xError;
+      return command;
+    }
+};
+
+PIDController rollFilter(filterKP, filterKI, 0, 0);
+PIDController pitchFilter(filterKP, filterKI, 0, 0);
 
 // MPU control/status vars
 int16_t AcX, AcY, AcZ, Tmp, GyX, GyY, GyZ; //acc, tmp, gyro data
@@ -28,7 +81,6 @@ void setup()
 {
   mpuinit();
   calibAccelGyro();
-  initDT();
   left.attach(5, 0, 2000);              //pin 5, range 0~2000
   right.attach(6, 0, 2000);             //pin 6, range 0~2000
   //Serial.setTimeout(50);                //50ms delayed
@@ -40,7 +92,6 @@ void setup()
 
   // configure LED for output
   pinMode(LED_PIN, OUTPUT);
-  
 }
 
 
@@ -52,10 +103,10 @@ void loop()
 {
   BTreceive();                   //receive maxoutput
   readAccelGyro();
-  calcDT();                        //calc peroid time
   calcAccelYPR();                  //calc accel
   calcGyro();                      //calc gyro
   calccompliYPR();                 //using complimentary filter
+  Validate();                      //validate data
   PWMtransmit();                   //transmit PWM to ESC
   Serial.println(micros());
 }
@@ -92,7 +143,6 @@ void readAccelGyro()
 int PWM;
 char temp[5];
 char buffer[5];
-float dt;
 float accel_angle_x, accel_angle_y, accel_angle_z;
 float gyro_angle_x, gyro_angle_y, gyro_angle_z;
 float compli_a_y;
@@ -107,9 +157,6 @@ void BTreceive()
     if (bluetooth.read() == 'a')
     {
       byte leng = bluetooth.readBytesUntil('z', temp, 5);
-
-      Serial.print("Input data Length : ");
-      Serial.println(leng);
       for (int i = 0 ; i < leng ; i++)
       {
         buffer[i] = temp[i];
@@ -162,21 +209,6 @@ void calibAccelGyro()
   baseGyZ = sumGyZ / 10;
 }
 
-unsigned long t_now;             //current measuring period time
-unsigned long t_prev;            //prev measuring period time
-
-void initDT()
-{
-  t_prev = millis();
-}
-
-void calcDT()
-{
-  t_now = millis();
-  dt = (t_now - t_prev) / 1000.0; //convert ms to sec
-  t_prev = t_now;
-}
-
 void calcAccelYPR()
 {
   float accel_x, accel_y, accel_z;     //final compesated value
@@ -210,36 +242,21 @@ void calcGyro()
 
 void calccompliYPR()
 {
-  const float ALPHA = 0.96;
-  float tmp_a_y;  //prev filtered value
+  pitchFilter.setDesired(accel_angle_x);
+  pitch = pitch + (gyro_x + pitchFilter.update(pitch, 0)) * dt;
 
-  tmp_a_y = compli_a_y + gyro_y * dt;
-
-  compli_a_y = ALPHA * tmp_a_y + (1.0 - ALPHA) * accel_angle_y;
+  rollFilter.setDesired(accel_angle_y);
+  roll = roll + (gyro_z + rollFilter.update(roll, 0)) * dt;
 }
 
-int roll_angle, yaw_gyro;
-
+int yaw_gyro;
 void Validate()
 {
-  yaw_gyro = abs(gyro_z);                    //absolute value
-  roll_angle = compli_a_y;
-
   Serial.print("roll angle:\t");
-  Serial.print(roll_angle);
+  Serial.print(roll);
   Serial.print("\tyaw gyro:\t");
   Serial.println(yaw_gyro);
   /*print data that converted into int         */
-  Serial.print("PWM : ");
-  Serial.println(PWM);
-  Serial.print("bias throttle : ");
-  Serial.println(biasoutput);
-  Serial.print("max throttle : ");
-  Serial.println(maxoutput);
-  Serial.print("left throttle : ");
-  Serial.println(chkl);
-  Serial.print("right throttle : ");
-  Serial.println(chkr);
   delay(5);
 }
 
@@ -249,20 +266,21 @@ void PWMtransmit()
   int minv = 1500;                           //stop PWM signal
   int maxoutput, biasoutput;
   int chkl, chkr;                            //removable
-
+  
+  yaw_gyro = abs(gyro_z);
   maxoutput = map(PWM, 0, 255, minv, 2000);
-  biasoutput = map(maxoutput, minv, 2000, minv, 1900);
+  biasoutput = map(maxoutput, minv, 2000, minv, 1800);
 
   if (yaw_gyro < turnover)
   {
-    if (roll_angle < 0)
+    if (roll < 0)
     {
       left.writeMicroseconds(maxoutput);
       right.writeMicroseconds(biasoutput);
       chkl = maxoutput;                      //removable
       chkr = biasoutput;                     //removable
     }
-    else if (roll_angle > 0)
+    else if (roll > 0)
     {
       left.writeMicroseconds(biasoutput);
       right.writeMicroseconds(maxoutput);
@@ -279,6 +297,16 @@ void PWMtransmit()
     Serial.println("drift detected! stop for a 2s.");
     delay(2000);
   }
-  Validate();                          //validate data
+    /* removable                                      */
+    Serial.print("PWM : ");
+    Serial.println(PWM);
+    Serial.print("bias throttle : ");
+    Serial.println(biasoutput);
+    Serial.print("max throttle : ");
+    Serial.println(maxoutput);
+    Serial.print("left throttle : ");
+    Serial.println(chkl);
+    Serial.print("right throttle : ");
+    Serial.println(chkr);
 }
 
