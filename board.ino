@@ -11,14 +11,13 @@ const int MPU_addr = 0x68;
 
 #define INTERRUPT_PIN 2  // use pin 2 on Arduino Uno & most boards
 #define LED_PIN 13 // (Arduino is 13)
-//#define FREQ 200.0
 
-double dt = 0.01; // 1.0 / FREQ;
+
+double dt = 0.01;
 double pitch = 0;
 double roll = 0;
-//float wn = .55;
-float filterKP = 20;//wn * 2.0;
-float filterKI = 3*dt;//wn * wn * dt;
+float filterKP = 20;
+float filterKI = 3*dt;
 
 class PIDController
 {
@@ -67,6 +66,10 @@ PIDController pitchFilter(filterKP, filterKI, 0, 0);
 
 // MPU control/status vars
 int16_t AcX, AcY, AcZ, Tmp, GyX, GyY, GyZ; //acc, tmp, gyro data
+// PWM vars
+int minv = 1203;                           //stop PWM signal
+int PWML = minv;                           //left PWM signal
+int PWMR = minv;                           //right PWM signal
 
 SoftwareSerial bluetooth(4, 3);
 Servo left;
@@ -81,15 +84,15 @@ void setup()
 {
   mpuinit();
   calibAccelGyro();
-  left.attach(5, 0, 2000);              //pin 5, range 0~2000
-  right.attach(6, 0, 2000);             //pin 6, range 0~2000
-  //Serial.setTimeout(50);                //50ms delayed
+  left.attach(5, 1000, 2000);              //pin 5, range 0~2000
+  right.attach(6, 1000, 2000);             //pin 6, range 0~2000
   Serial.begin(115200);
   bluetooth.begin(115200);
   Wire.begin();
-
+  // init ESC
+  left.writeMicroseconds(PWML);
+  right.writeMicroseconds(PWMR);
   pinMode(INTERRUPT_PIN, INPUT);
-
   // configure LED for output
   pinMode(LED_PIN, OUTPUT);
 }
@@ -106,9 +109,7 @@ void loop()
   calcAccelYPR();                  //calc accel
   calcGyro();                      //calc gyro
   calccompliYPR();                 //using complimentary filter
-  Validate();                      //validate data
   PWMtransmit();                   //transmit PWM to ESC
-  Serial.println(micros());
 }
 
 // ================================================================
@@ -140,7 +141,7 @@ void readAccelGyro()
   GyZ = Wire.read() << 8 | Wire.read();
 }
 
-int PWM;
+int SIG;
 char temp[5];
 char buffer[5];
 float accel_angle_x, accel_angle_y, accel_angle_z;
@@ -175,7 +176,7 @@ void BTreceive()
       }
       if (chk == leng) // check lost value
       {
-        PWM = integer;
+        SIG = integer;
       }
       /*initialize buffer & index                    */
       for (int a = 0; a < leng+2; a++)
@@ -250,63 +251,34 @@ void calccompliYPR()
 }
 
 int yaw_gyro;
-void Validate()
-{
-  Serial.print("roll angle:\t");
-  Serial.print(roll);
-  Serial.print("\tyaw gyro:\t");
-  Serial.println(yaw_gyro);
-  /*print data that converted into int         */
-  delay(5);
-}
 
 void PWMtransmit()
 {
-  int turnover = 100;                        //stop standard gyro
-  int minv = 1500;                           //stop PWM signal
+  int turnover = 100;                        //stop gyro signal
   int maxoutput, biasoutput;
-  int chkl, chkr;                            //removable
   
   yaw_gyro = abs(gyro_z);
-  maxoutput = map(PWM, 0, 255, minv, 2000);
-  biasoutput = map(maxoutput, minv, 2000, minv, 1800);
+  maxoutput = map(SIG, 0, 255, minv, 1800);
+  biasoutput = map(maxoutput, minv, 1800, minv, 1600);
 
   if (yaw_gyro < turnover)
   {
     if (roll < 0)
     {
-      left.writeMicroseconds(maxoutput);
-      right.writeMicroseconds(biasoutput);
-      chkl = maxoutput;                      //removable
-      chkr = biasoutput;                     //removable
+      PWML = maxoutput;
+      PWMR = biasoutput;
     }
     else if (roll > 0)
     {
-      left.writeMicroseconds(biasoutput);
-      right.writeMicroseconds(maxoutput);
-      chkl = biasoutput;                     //removable
-      chkr = maxoutput;                      //removable
+      PWMR = maxoutput;
+      PWML = biasoutput;
     }
   }
   else
   {
-    left.writeMicroseconds(minv);
-    right.writeMicroseconds(minv);
-    chkl = minv;                       //removable
-    chkr = minv;                       //removable
-    Serial.println("drift detected! stop for a 2s.");
+    PWML = minv;
+    PWMR = minv;
     delay(2000);
   }
-    /* removable                                      */
-    Serial.print("PWM : ");
-    Serial.println(PWM);
-    Serial.print("bias throttle : ");
-    Serial.println(biasoutput);
-    Serial.print("max throttle : ");
-    Serial.println(maxoutput);
-    Serial.print("left throttle : ");
-    Serial.println(chkl);
-    Serial.print("right throttle : ");
-    Serial.println(chkr);
 }
 
