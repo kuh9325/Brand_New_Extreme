@@ -16,8 +16,8 @@ const int MPU_addr = 0x68;
 double dt = 0.01;
 double pitch = 0;
 double roll = 0;
-float filterKP = 20;
-float filterKI = 3*dt;
+float filterKP = 2;
+float filterKI = 1*dt;
 
 class PIDController
 {
@@ -67,7 +67,7 @@ PIDController pitchFilter(filterKP, filterKI, 0, 0);
 // MPU control/status vars
 int16_t AcX, AcY, AcZ, Tmp, GyX, GyY, GyZ; //acc, tmp, gyro data
 // PWM vars
-int minv = 1203;                           //stop PWM signal
+int minv = 1200;                           //stop PWM signal
 int PWML = minv;                           //left PWM signal
 int PWMR = minv;                           //right PWM signal
 
@@ -90,8 +90,8 @@ void setup()
   bluetooth.begin(115200);
   Wire.begin();
   // init ESC
-  left.writeMicroseconds(PWML);
-  right.writeMicroseconds(PWMR);
+  left.writeMicroseconds(1205);
+  right.writeMicroseconds(1204);
   pinMode(INTERRUPT_PIN, INPUT);
   // configure LED for output
   pinMode(LED_PIN, OUTPUT);
@@ -109,6 +109,7 @@ void loop()
   calcAccelYPR();                  //calc accel
   calcGyro();                      //calc gyro
   calccompliYPR();                 //using complimentary filter
+  Validate();
   PWMtransmit();                   //transmit PWM to ESC
 }
 
@@ -252,33 +253,65 @@ void calccompliYPR()
 
 int yaw_gyro;
 
+int maxoutput, biasoutput;
+int chkl, chkr;                            //removable
+
+void Validate()
+{
+  yaw_gyro = abs(gyro_z);                    //absolute value
+
+  Serial.print("roll angle:\t");
+  Serial.print(roll);
+  Serial.print("\tyaw gyro:\t");
+  Serial.println(yaw_gyro);
+  /*print data that converted into int         */
+  Serial.print("PWM : ");
+  Serial.println(SIG);
+  Serial.print("bias throttle : ");
+  Serial.println(biasoutput);
+  Serial.print("max throttle : ");
+  Serial.println(maxoutput);
+  Serial.print("left throttle : ");
+  Serial.println(chkl);
+  Serial.print("right throttle : ");
+  Serial.println(chkr);
+  delay(5);
+}
+
 void PWMtransmit()
 {
-  int turnover = 100;                        //stop gyro signal
-  int maxoutput, biasoutput;
+  int turnover = 200;                        //stop gyro signal
   
   yaw_gyro = abs(gyro_z);
-  maxoutput = map(SIG, 0, 255, minv, 1800);
-  biasoutput = map(maxoutput, minv, 1800, minv, 1600);
+  maxoutput = map(SIG, 0, 255, minv, 1500);
+  biasoutput = map(maxoutput, minv, 1800, minv, 1300);
 
   if (yaw_gyro < turnover)
   {
     if (roll < 0)
     {
-      PWML = maxoutput;
-      PWMR = biasoutput;
+      left.writeMicroseconds(maxoutput);
+      right.writeMicroseconds(biasoutput);
+      chkl = maxoutput;                      //removable
+      chkr = biasoutput;                     //removable
     }
     else if (roll > 0)
     {
-      PWMR = maxoutput;
-      PWML = biasoutput;
+      right.writeMicroseconds(maxoutput);
+      left.writeMicroseconds(biasoutput);
+      chkl = biasoutput;                     //removable
+      chkr = maxoutput;                      //removable
     }
   }
   else
   {
-    PWML = minv;
-    PWMR = minv;
-    delay(2000);
+    left.writeMicroseconds(minv);
+    right.writeMicroseconds(minv);
+    chkl = minv;                       //removable
+    chkr = minv;                       //removable
+    Serial.println("drift detected! stop for a 3s.");
+    delay(3000);
   }
+
 }
 
