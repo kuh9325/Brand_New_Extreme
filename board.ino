@@ -67,9 +67,10 @@ PIDController pitchFilter(filterKP, filterKI, 0, 0);
 // MPU control/status vars
 int16_t AcX, AcY, AcZ, Tmp, GyX, GyY, GyZ; //acc, tmp, gyro data
 // PWM vars
-int minv = 1200;                           //stop PWM signal
-int PWML = minv;                           //left PWM signal
-int PWMR = minv;                           //right PWM signal
+int minv = 1190;                           //stop PWM signal
+int biasl = 7;
+int biasr = 4;
+int stops;
 
 SoftwareSerial bluetooth(4, 3);
 Servo left;
@@ -84,14 +85,24 @@ void setup()
 {
   mpuinit();
   calibAccelGyro();
-  left.attach(5, 1000, 2000);              //pin 5, range 0~2000
-  right.attach(6, 1000, 2000);             //pin 6, range 0~2000
+  left.attach(5, 1200, 2000);              //pin 5, range 0~2000
+  right.attach(6, 1200, 2000);             //pin 6, range 0~2000
   Serial.begin(115200);
   bluetooth.begin(115200);
   Wire.begin();
   // init ESC
-  left.writeMicroseconds(1205);
-  right.writeMicroseconds(1204);
+  Serial.println("\n initializing ESC...");
+  delay(1080);
+  left.writeMicroseconds(2000);
+  right.writeMicroseconds(2000);
+  delay(38000);
+  left.writeMicroseconds(700);
+  right.writeMicroseconds(700);
+  Serial.println("all process done, ready for driving");
+  delay(1080);
+  left.writeMicroseconds(minv);
+  right.writeMicroseconds(minv);
+  
   pinMode(INTERRUPT_PIN, INPUT);
   // configure LED for output
   pinMode(LED_PIN, OUTPUT);
@@ -153,7 +164,8 @@ float baseGyX, baseGyY, baseGyZ;            //gyro avg
 
 void BTreceive()
 {
-  if (bluetooth.available())
+  int param = bluetooth.available();
+  if (param > 0)
   {
     // data starts a and it ends z
     if (bluetooth.read() == 'a')
@@ -185,6 +197,19 @@ void BTreceive()
         buffer[a] = NULL;
       }
     }
+    stops = 0;
+  }
+  else if (param == 0)
+  {
+    stops++;
+    Serial.print("sum : ");
+    Serial.println(stops);
+  }
+  
+  if (stops > 15)
+  {
+    SIG = 0;
+    Serial.println("controller power off, emergency stop activated.");
   }
 }
 
@@ -283,35 +308,44 @@ void PWMtransmit()
   int turnover = 200;                        //stop gyro signal
   
   yaw_gyro = abs(gyro_z);
-  maxoutput = map(SIG, 0, 255, minv, 1500);
-  biasoutput = map(maxoutput, minv, 1800, minv, 1300);
+  maxoutput = map(SIG, 0, 255, 1200, 1500);
+  biasoutput = map(maxoutput, 1200, 1800, 1200, 1300);
 
-  if (yaw_gyro < turnover)
+  if (SIG == 0)
   {
-    if (roll < 0)
-    {
-      left.writeMicroseconds(maxoutput);
-      right.writeMicroseconds(biasoutput);
-      chkl = maxoutput;                      //removable
-      chkr = biasoutput;                     //removable
-    }
-    else if (roll > 0)
-    {
-      right.writeMicroseconds(maxoutput);
-      left.writeMicroseconds(biasoutput);
-      chkl = biasoutput;                     //removable
-      chkr = maxoutput;                      //removable
-    }
+      chkl = minv;
+      chkr = minv;
+      left.writeMicroseconds(chkl);
+      right.writeMicroseconds(chkr);
   }
   else
   {
-    left.writeMicroseconds(minv);
-    right.writeMicroseconds(minv);
-    chkl = minv;                       //removable
-    chkr = minv;                       //removable
-    Serial.println("drift detected! stop for a 3s.");
-    delay(3000);
+    if (yaw_gyro < turnover)
+    {
+      if (roll < 0)
+      {
+        chkl = maxoutput+biasl;
+        chkr = biasoutput+biasr;
+        left.writeMicroseconds(chkl);
+        right.writeMicroseconds(chkr);
+      }
+      else if (roll > 0)
+      {
+        chkl = biasoutput+biasl;
+        chkr = maxoutput+biasr;
+        right.writeMicroseconds(chkr);
+        left.writeMicroseconds(chkl);
+      }
+    }
+    else
+    {
+      chkl = minv;
+      chkr = minv;
+      left.writeMicroseconds(chkl);
+      right.writeMicroseconds(chkr);
+      Serial.println("drift detected! stop for a 3s.");
+      delay(3000);
+    }
   }
-
 }
 
