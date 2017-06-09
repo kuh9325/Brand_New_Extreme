@@ -16,7 +16,7 @@ const int MPU_addr = 0x68;
 double dt = 0.01;
 double pitch = 0;
 double roll = 0;
-float filterKP = 2;
+float filterKP = 4;
 float filterKI = 1*dt;
 
 class PIDController
@@ -164,6 +164,7 @@ float baseGyX, baseGyY, baseGyZ;            //gyro avg
 
 void BTreceive()
 {
+  bluetooth.print("i");
   int param = bluetooth.available();
   if (param > 0)
   {
@@ -184,7 +185,7 @@ void BTreceive()
         for (dgt ; dgt >10;)
         {
            dgt = dgt/10;
-           chk++; 
+           chk++;
         }
       }
       if (chk == leng) // check lost value

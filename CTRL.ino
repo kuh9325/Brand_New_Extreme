@@ -13,6 +13,9 @@ void setup()
 {
   Serial.begin(115200);
   bluetooth.begin(115200);
+  pinMode(4, OUTPUT);
+  pinMode(5, OUTPUT);
+  pinMode(6, OUTPUT);
 }
 
 void loop()
@@ -28,7 +31,21 @@ void loop()
   /*transmit signal to Slave HC-06                                      */
   bluetooth.print("a");
   bluetooth.print(maxoutput);
+  Serial.println(maxoutput);
   bluetooth.print("z");
+  if (bluetooth.available())
+  {
+    Serial.println(bluetooth.read());
+    digitalWrite(4,LOW);
+    digitalWrite(5,HIGH);
+    digitalWrite(6,LOW);
+  }
+  else
+  {
+    digitalWrite(4,HIGH);
+    digitalWrite(5,LOW);
+    digitalWrite(6,LOW);
+  }
 }
 
 /*PWM control motor output                         */
