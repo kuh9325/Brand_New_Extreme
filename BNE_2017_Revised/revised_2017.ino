@@ -221,6 +221,7 @@ private:
     rawThrottle_ = static_cast<uint8_t>(value);
     lastValidPacketMs_ = millis();
     hasValidFrame_ = true;
+    serial_.write('i'); // one-byte acknowledgement for revised controller link indication
   }
 
   SoftwareSerial& serial_;
@@ -261,9 +262,12 @@ public:
 
   float engagement(float rollDeg) const {
     if (mode_ == ContactMode::CENTER) return 0.0f;
-    const float span = Config::FULL_EDGE_ANGLE_DEG - Config::EDGE_ANGLE_DEG;
+    // Start the blend at the same angle that enters an EDGE state. This avoids
+    // a command jump when hysteresis changes CENTER -> EDGE.
+    const float start = Config::EDGE_ANGLE_DEG + Config::EDGE_HYSTERESIS_DEG;
+    const float span = Config::FULL_EDGE_ANGLE_DEG - start;
     if (span <= 0.0f) return 1.0f;
-    const float z = (fabs(rollDeg) - Config::EDGE_ANGLE_DEG) / span;
+    const float z = (fabs(rollDeg) - start) / span;
     return smoothstep01(z);
   }
 
@@ -349,7 +353,10 @@ public:
     }
 
     if (state_ == RideState::FAILSAFE || state_ == RideState::DISARMED) {
-      const bool safe = throttle <= Config::ARM_THROTTLE;
+      // A radio/IMU fault can occur during a spin. Do not let FAILSAFE bypass
+      // the spin re-arm condition after communication or sensor recovery.
+      const bool safe = fabs(yawRateDps) <= Config::SPIN_REARM_DPS
+                     && throttle <= Config::ARM_THROTTLE;
       holdAndRearm(safe, nowMs);
     }
   }
@@ -421,6 +428,7 @@ EscPair motors;
 
 uint32_t lastControlUs = 0;
 uint32_t lastTelemetryMs = 0;
+bool imuReady = false;
 
 static const __FlashStringHelper* contactName(ContactMode mode) {
   switch (mode) {
@@ -446,11 +454,12 @@ void setup() {
 
   Serial.println(F("BNE 2017 Revised: initializing MPU-6050"));
   if (!imu.begin()) {
-    Serial.println(F("MPU init failed; motors remain stopped"));
+    Serial.println(F("MPU init failed; motors remain stopped until reset"));
   } else if (!imu.calibrate()) {
-    Serial.println(F("MPU calibration failed; motors remain stopped"));
+    Serial.println(F("MPU calibration failed; motors remain stopped until reset"));
   } else {
     attitude.reset(imu.accelRollDeg());
+    imuReady = true;
     Serial.println(F("MPU ready"));
   }
 
@@ -471,7 +480,7 @@ void loop() {
   const float dt = static_cast<float>(elapsedUs) * 1.0e-6f;
   const uint32_t nowMs = millis();
 
-  const bool imuHealthy = imu.update();
+  const bool imuHealthy = imuReady && imu.update();
   if (imuHealthy) {
     attitude.update(imu.accelRollDeg(), imu.rollRateDps(), dt);
   }
