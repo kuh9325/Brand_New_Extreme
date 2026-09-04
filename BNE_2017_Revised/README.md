@@ -1,6 +1,11 @@
 # Brand New Extreme — 2017 Revised Control
 
-This sketch preserves the 2017 hardware concept (Arduino + MPU-6050 + Bluetooth throttle + dual RC ESCs) while replacing the original roll-sign relay logic with a contact-aware hybrid controller.
+These separate Arduino sketches preserve the 2017 hardware concept (Arduino + MPU-6050 + Bluetooth throttle + dual RC ESCs) while replacing the original roll-sign relay logic with a contact-aware hybrid controller.
+
+Compile and upload the two sketches independently:
+
+- `board/board.ino` — vehicle board, MPU-6050, Bluetooth receiver, and dual ESC control
+- `controller/controller.ino` — handheld throttle transmitter and Bluetooth link indicator
 
 ## Control interpretation
 
@@ -83,7 +88,7 @@ The first revised commit (`6218371fa59f5c6e813338471f7180403e27371f`) was audite
 1. **Persistent IMU readiness:** a failed boot-time initialization/calibration can no longer be followed by an accidental arm after a later single successful I2C read. Reset is required after boot calibration failure.
 2. **Safe FAILSAFE re-arm:** recovering from radio/IMU FAILSAFE now requires both low throttle and yaw rate below the spin re-arm threshold, so a communication dropout during a spin cannot bypass the spin safety condition.
 3. **Continuous edge-entry command:** traction engagement now starts at the hysteresis ON angle (10 deg with the nominal settings), eliminating the deterministic ~15.6% engagement jump that occurred when CENTER changed to EDGE.
-4. **Transmitter-rate compatibility:** the archived `CTRL.ino` sends only about every 200 ms. With a 250 ms receiver timeout that leaves almost no missed-frame margin. `controller_revised.ino` sends at 50 Hz and receives a one-byte `i` acknowledgement from the board.
+4. **Transmitter-rate compatibility:** the archived `CTRL.ino` sends only about every 200 ms. With a 250 ms receiver timeout that leaves almost no missed-frame margin. `controller/controller.ino` sends at 50 Hz and receives a one-byte `i` acknowledgement from the board.
 
 ## Remaining model/hardware limitations
 
